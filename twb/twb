@@ -1,0 +1,80 @@
+#! /usr/bin/python3
+import sys
+import cv2
+import os.path
+
+
+def printUsage():
+    print("Usage:")
+    print("  twb input")
+
+
+def combine_two_color_images_with_anchor(fg_img, bg_img, anchor_y, anchor_x):
+    foreground, background = fg_img.copy(), bg_img.copy()
+
+    bg_height = background.shape[0]
+    bg_width = background.shape[1]
+    fg_height = foreground.shape[0]
+    fg_width = foreground.shape[1]
+
+    if fg_height + anchor_y > bg_height or fg_width+anchor_x > bg_width: \
+        raise ValueError(f"The foreground image ({fg_width}, {fg_height}) \
+                        exceeds the background ({bg_width}, {bg_height}) \
+                        boundaries at this location {anchor_x}, {anchor_y}")
+
+    # do composite at specified location
+    start_y = anchor_y
+    start_x = anchor_x
+    end_y = anchor_y + fg_height
+    end_x = anchor_x + fg_width
+    bg_portion = background[start_y:end_y, start_x:end_x, :]
+    blended_portion = cv2.addWeighted(foreground,
+                                      0.4,
+                                      bg_portion,
+                                      1,
+                                      1,
+                                      background)
+
+    background[start_y:end_y, start_x:end_x, :] = blended_portion
+    return background
+
+
+def get_scale(img, new_max_len):
+    scale = 100 * new_max_len / max(img.shape[1], img.shape[0])
+
+    width = int(img.shape[1] * scale / 100)
+    height = int(img.shape[0] * scale / 100)
+    dim = (width, height)
+    return dim
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        printUsage()
+        exit()
+
+    input = sys.argv[1]
+    filenameExt = os.path.splitext(os.path.basename(input))
+    output = sys.argv[2] # os.path.join(os.path.dirname(input), filenameExt[0] + "_" + filenameExt[1])
+    sign_path = os.path.join(os.path.dirname(sys.argv[0]), "sign.png")
+
+    print(f"Modifying {input} {output}")
+
+    base_img = cv2.imread(input, cv2.IMREAD_UNCHANGED)
+    sign_img = cv2.imread(sign_path, cv2.IMREAD_UNCHANGED)
+
+    resized_img = cv2.resize(base_img, get_scale(base_img, 2000),
+                             interpolation=cv2.INTER_AREA)
+    sign_img = cv2.resize(sign_img, get_scale(sign_img, 200),
+                          interpolation=cv2.INTER_AREA)
+
+    # Add alpha channel if needed
+    if len(resized_img.shape) == 3:
+        resized_img = cv2.cvtColor(resized_img, cv2.COLOR_RGB2RGBA)
+
+    anchor_x = resized_img.shape[1] - sign_img.shape[1]
+    anchor_y = resized_img.shape[0] - sign_img.shape[0]
+    resized_img = combine_two_color_images_with_anchor(sign_img, resized_img,
+                                                       anchor_y, anchor_x)
+
+    cv2.imwrite(output, resized_img)
